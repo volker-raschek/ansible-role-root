@@ -1,0 +1,23 @@
+galaxy_info:
+  namespace: volker_raschek
+  role_name: "root"
+  author: "Markus Pesch"
+  description: Role to configure root
+  company: Cryptic Systems
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+  - name: ArchLinux
+    versions:
+    - all
+  - name: Ubuntu
+    versions:
+    - all
+  - name: Fedora
+    versions:
+    - "35"
+
+  galaxy_tags:
+  - root
+
+dependencies: []

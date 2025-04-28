@@ -1,0 +1,12 @@
+---
+
+root: {}
+#   password: ""
+#   ssh:
+#     config:
+#     - Host: "*"
+#       StrictHostKeyChecking: "no"
+#       UserKnownHostFile: /dev/null
+#     authorized_keys:
+#     - filename: markus@markus-pc.pub
+#       # command: "" # optional

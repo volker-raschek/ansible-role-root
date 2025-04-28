@@ -1,0 +1,115 @@
+---
+
+- name: Set or unset root password
+  block:
+  - name: Set root password
+    ansible.builtin.user:
+      name: root
+      password: "{{ root.password | password_hash('sha512') }}"
+      password_lock: false
+    when: root.password is defined and root.password | length > 0 and root.password != "!"
+    no_log: true
+
+  - name: Update ansible_become_pass
+    ansible.builtin.set_fact:
+      ansible_become_pass: "{{ root.password }}"
+    when: root.password is defined and root.password | length > 0 and root.password != "!"
+    no_log: true
+
+  - name: Lock root login
+    ansible.builtin.user:
+      name: root
+      password_lock: true
+    when: root.password is defined and root.password | length <= 0
+
+- name: Create .ssh directory
+  ansible.builtin.file:
+    path: "/root/.ssh"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0700"
+
+- name: "Create authorized_keys file"
+  ansible.builtin.template:
+    src: root/.ssh/authorized_keys.j2
+    dest: "/root/.ssh/authorized_keys"
+    owner: "root"
+    group: "root"
+    mode: "0600"
+  when: root.ssh is defined and
+        root.ssh.authorized_keys is defined and
+        root.ssh.authorized_keys | length > 0
+
+- name: "Remove authorized_keys file"
+  ansible.builtin.file:
+    path: "/root/.ssh/authorized_keys"
+    state: absent
+  when: root.ssh is defined and
+        root.ssh.authorized_keys is defined and
+        root.ssh.authorized_keys | length <= 0 or
+        root.ssh is defined and
+        root.ssh.authorized_keys is not defined or
+        root.ssh is not defined
+
+- name: "Generate private and public SSH key"
+  when: root.ssh is defined and
+        (
+          root.ssh.private_keys is not defined or
+          root.ssh.private_keys | length <= 0
+        )
+  block:
+  - name: "Check if private SSH key already exists"
+    ansible.builtin.stat:
+      path: "/root/.ssh/{{ inventory_hostname_short }}.key"
+    register: stat_result
+  - name: "Generate private SSH key"
+    community.crypto.openssh_keypair:
+      path: "/root/.ssh/{{ inventory_hostname_short }}.key"
+      type: ed25519
+      size: 512
+      state: present
+      comment: "root@{{ inventory_hostname_short }}"
+      force: false
+    when: not stat_result.stat.exists
+
+- name: "Create private and public SSH key"
+  when: root.ssh is defined and
+        root.ssh.private_keys is defined and
+        root.ssh.private_keys | length > 0
+  block:
+  - name: "Create private SSH keys"
+    ansible.builtin.copy:
+      src: "{{ playbook_dir }}/ssh/private_keys/{{ item }}"
+      dest: "/root/.ssh/{{ item }}"
+      owner: "root"
+      group: "root"
+      mode: "0600"
+    with_items:
+    - "{{ root.ssh.private_keys }}"
+
+  - name: "Extract public SSH keys from private keys"
+    ansible.builtin.shell:
+    args:
+      executable: /bin/bash
+      cmd: "ssh-keygen -y -f /root/.ssh/{{ item }} > /root/.ssh/{{ item }}.pub"
+    register: _root_ssh_pub_key_extraction
+    changed_when: _root_ssh_pub_key_extraction.rc == 0
+    failed_when: _root_ssh_pub_key_extraction.rc > 0
+    with_items:
+    - "{{ root.ssh.private_keys }}"
+
+- name: "Create custom SSH client config"
+  ansible.builtin.template:
+    src: root/.ssh/config.j2
+    dest: /root/.ssh/config
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  when: root.ssh.config is defined and root.ssh.config | length >= 0
+
+- name: "Remove custom SSH client config"
+  ansible.builtin.file:
+    path: "/root/.ssh/config"
+    state: absent
+  when: root.ssh.config is not defined
