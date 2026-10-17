@@ -80,24 +80,27 @@
   block:
   - name: "Create private SSH keys"
     ansible.builtin.copy:
-      src: "{{ playbook_dir }}/ssh/private_keys/{{ item }}"
-      dest: "/root/.ssh/{{ item }}"
+      content: "{{ item.content }}"
+      dest: "/root/.ssh/{{ item.filename }}"
       owner: "root"
       group: "root"
       mode: "0600"
-    with_items:
-    - "{{ root.ssh.private_keys }}"
+    loop: "{{ root.ssh.private_keys }}"
+    loop_control:
+      label: "{{ item.filename }}"
 
   - name: "Extract public SSH keys from private keys"
     ansible.builtin.shell:
     args:
       executable: /bin/bash
-      cmd: "ssh-keygen -y -f /root/.ssh/{{ item }} > /root/.ssh/{{ item }}.pub"
+      cmd: "ssh-keygen -y -f {{ ('/root/.ssh/' + item.filename) | quote }} > {{ ('/root/.ssh/' + item.filename + '.pub') | quote }}"
+      creates: "/root/.ssh/{{ item.filename }}.pub"
     register: _root_ssh_pub_key_extraction
     changed_when: _root_ssh_pub_key_extraction.rc == 0
     failed_when: _root_ssh_pub_key_extraction.rc > 0
-    with_items:
-    - "{{ root.ssh.private_keys }}"
+    loop: "{{ root.ssh.private_keys }}"
+    loop_control:
+      label: "{{ item.filename }}"
 
 - name: "Create custom SSH client config"
   ansible.builtin.template:

@@ -8,5 +8,11 @@ root: {}
 #       StrictHostKeyChecking: "no"
 #       UserKnownHostFile: /dev/null
 #     authorized_keys:
-#     - filename: markus@markus-pc.pub
+#     - content: ssh-ed25519 AAAAC3NzaC... alice
 #       # command: "" # optional
+#     private_keys:
+#     - filename: alice@alice-pc.ed25519.key
+#       content: |
+#         -----BEGIN OPENSSH PRIVATE KEY-----
+#         ...
+#         -----END OPENSSH PRIVATE KEY-----
