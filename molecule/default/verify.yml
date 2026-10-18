@@ -1,0 +1,188 @@
+---
+- name: Verify
+  hosts: all
+  vars:
+    _expected_modes:
+      /root/.ssh: "0700"
+      /root/.ssh/authorized_keys: "0600"
+      /root/.ssh/config: "0644"
+      /root/.ssh/molecule.ed25519: "0600"
+      /root/.ssh/molecule.ed25519.pub: "0644"
+  vars_files:
+  - vars/main.yml
+  tasks:
+  - name: Stat the SSH directory and files
+    ansible.builtin.stat:
+      path: "{{ item.key }}"
+    loop: "{{ _expected_modes | dict2items }}"
+    loop_control:
+      label: "{{ item.key }}"
+    register: _root_files
+
+  - name: Assert SSH ownership and permissions
+    ansible.builtin.assert:
+      that:
+      - item.stat.exists
+      - item.stat.mode == item.item.value
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+    loop: "{{ _root_files.results }}"
+    loop_control:
+      label: "{{ item.item.key }}"
+
+  - name: Read the SSH files
+    ansible.builtin.slurp:
+      src: "{{ item }}"
+    loop:
+    - /root/.ssh/authorized_keys
+    - /root/.ssh/config
+    - /root/.ssh/molecule.ed25519
+    - /root/.ssh/molecule.ed25519.pub
+    no_log: true
+    register: _root_contents
+
+  - name: Assert SSH file contents
+    vars:
+      _original_public_key: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/original.ed25519.pub") }}'
+      _replacement_public_key: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/replacement.ed25519.pub") }}'
+    ansible.builtin.assert:
+      that:
+      - (('command="/usr/bin/true" ' + _original_public_key) in (_root_contents.results[0].content | b64decode).splitlines())
+      - _replacement_public_key in (_root_contents.results[0].content | b64decode).splitlines()
+      - "'Host *' in (_root_contents.results[1].content | b64decode).splitlines()"
+      - "'  StrictHostKeyChecking no' in (_root_contents.results[1].content | b64decode).splitlines()"
+      - (_root_contents.results[2].content | b64decode) == _root_configuration.ssh.private_keys[0].content
+      - (_root_contents.results[3].content | b64decode).split()[1] == _original_public_key.split()[1]
+    no_log: true
+
+- name: Verify SSH key rotation
+  hosts: all
+  vars:
+    root:
+      ssh:
+        authorized_keys: "{{ _root_configuration.ssh.authorized_keys }}"
+        config: "{{ _root_configuration.ssh.config }}"
+        private_keys:
+        - content: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/replacement.ed25519", rstrip=false) }}'
+          filename: molecule.ed25519
+  vars_files:
+  - vars/main.yml
+  tasks:
+  - name: Replace the private key while keeping the public key file
+    ansible.builtin.include_role:
+      name: root
+
+  - name: Read the public key after rotation
+    ansible.builtin.slurp:
+      src: /root/.ssh/molecule.ed25519.pub
+    register: _rotated_public_key
+
+  - name: Assert the existing public key was updated
+    vars:
+      _expected_public_key: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/replacement.ed25519.pub") }}'
+    ansible.builtin.assert:
+      that:
+      - (_rotated_public_key.content | b64decode).split()[1] == _expected_public_key.split()[1]
+      - _rotated_public_key.content != _root_contents.results[3].content
+
+- name: Verify root password and empty authorized keys
+  hosts: all
+  vars:
+    root:
+      password: molecule-root-password
+      ssh:
+        authorized_keys: []
+  tasks:
+  - name: Set the root password and remove empty optional SSH files
+    ansible.builtin.include_role:
+      name: root
+
+  - name: Read the root password entry
+    ansible.builtin.getent:
+      database: shadow
+      key: root
+    no_log: true
+
+  - name: Hash the test password using the stored salt and rounds
+    ansible.builtin.command:
+      argv:
+      - openssl
+      - passwd
+      - -6
+      - -salt
+      - "{{ ansible_facts.getent_shadow.root[0].split('$')[2:-1] | join('$') }}"
+      - -stdin
+      stdin: molecule-root-password
+    changed_when: false
+    no_log: true
+    register: _expected_password_hash
+
+  - name: Assert the root password was set and unlocked
+    ansible.builtin.assert:
+      that:
+      - ansible_facts.getent_shadow.root[0].startswith('$6$')
+      - ansible_facts.getent_shadow.root[0] == _expected_password_hash.stdout
+      - ansible_become_pass == 'molecule-root-password'
+    no_log: true
+
+  - name: Stat removed optional SSH files
+    ansible.builtin.stat:
+      path: "{{ item }}"
+    loop:
+    - /root/.ssh/authorized_keys
+    - /root/.ssh/config
+    register: _removed_files
+
+  - name: Assert empty and undefined optional SSH files were removed
+    ansible.builtin.assert:
+      that: not item.stat.exists
+    loop: "{{ _removed_files.results }}"
+    loop_control:
+      label: "{{ item.item }}"
+
+- name: Restore SSH settings
+  hosts: all
+  vars:
+    root: "{{ _root_configuration }}"
+  vars_files:
+  - vars/main.yml
+  tasks:
+  - name: Restore optional SSH files before testing omitted SSH settings
+    ansible.builtin.include_role:
+      name: root
+
+- name: Verify root locking and omitted SSH settings
+  hosts: all
+  vars:
+    root:
+      password: ""
+  tasks:
+  - name: Lock root and remove omitted optional SSH files
+    ansible.builtin.include_role:
+      name: root
+
+  - name: Read the locked root password entry
+    ansible.builtin.getent:
+      database: shadow
+      key: root
+    no_log: true
+
+  - name: Assert root login is locked
+    ansible.builtin.assert:
+      that: ansible_facts.getent_shadow.root[0].startswith('!')
+    no_log: true
+
+  - name: Stat optional SSH files after omitting SSH settings
+    ansible.builtin.stat:
+      path: "{{ item }}"
+    loop:
+    - /root/.ssh/authorized_keys
+    - /root/.ssh/config
+    register: _omitted_files
+
+  - name: Assert omitted optional SSH files were removed
+    ansible.builtin.assert:
+      that: not item.stat.exists
+    loop: "{{ _omitted_files.results }}"
+    loop_control:
+      label: "{{ item.item }}"

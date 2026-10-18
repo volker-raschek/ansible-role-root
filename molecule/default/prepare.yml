@@ -1,0 +1,19 @@
+---
+- name: Prepare
+  hosts: all
+  gather_facts: false
+  vars:
+    _bootstrap: |
+      set -eu
+      if command -v pacman > /dev/null; then
+        pacman --sync --refresh --noconfirm openssh openssl python shadow
+      elif command -v apt-get > /dev/null; then
+        apt-get update
+        apt-get install --yes openssh-client openssl passwd python3
+      else
+        dnf install --assumeyes openssh-clients openssl python3 shadow-utils
+      fi
+  tasks:
+  - name: Bootstrap Python and the tools required by the role
+    ansible.builtin.raw: "/bin/sh -c {{ _bootstrap | quote }}"
+    changed_when: true

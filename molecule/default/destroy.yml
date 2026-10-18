@@ -1,0 +1,28 @@
+---
+- name: Destroy
+  hosts: localhost
+  gather_facts: false
+  tasks:
+  - name: Remove the container of every platform
+    community.docker.docker_container:
+      name: "{{ item.name }}"
+      state: absent
+    loop: "{{ molecule_yml.platforms }}"
+    loop_control:
+      label: "{{ item.name }}"
+
+  - name: Remove temporary SSH key pairs
+    ansible.builtin.file:
+      path: "{{ molecule_ephemeral_directory }}/{{ item }}"
+      state: absent
+    loop:
+    - original.ed25519
+    - original.ed25519.pub
+    - replacement.ed25519
+    - replacement.ed25519.pub
+
+  - name: Empty the instance config
+    ansible.builtin.copy:
+      content: "[]"
+      dest: "{{ molecule_instance_config }}"
+      mode: "0600"

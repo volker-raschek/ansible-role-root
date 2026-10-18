@@ -1,0 +1,14 @@
+---
+
+_root_configuration:
+  ssh:
+    authorized_keys:
+    - content: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/original.ed25519.pub") }}'
+      command: /usr/bin/true
+    - content: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/replacement.ed25519.pub") }}'
+    config:
+    - Host: "*"
+      StrictHostKeyChecking: "no"
+    private_keys:
+    - content: '{{ lookup("ansible.builtin.file", molecule_ephemeral_directory + "/original.ed25519", rstrip=false) }}'
+      filename: molecule.ed25519
